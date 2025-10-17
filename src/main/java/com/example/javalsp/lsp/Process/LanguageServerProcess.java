@@ -2,21 +2,20 @@ package com.example.javalsp.lsp.Process;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class LanguageServerProcess {
     private final Process process;
-    private final BufferedReader reader;
     private final BufferedWriter writer;
     private final BufferedReader errorReader;
     private final Thread readerThread;
@@ -30,9 +29,9 @@ public class LanguageServerProcess {
     public LanguageServerProcess(Process process, Consumer<String> messageHandler, String userId) {
         this.process = process;
         this.userId = userId;
-        this.reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        this.writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
-        this.errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+        // Correctly specify UTF-8 encoding for all readers and writers
+        this.writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
+        this.errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8));
 
         startProcessMonitor();
 
@@ -56,11 +55,10 @@ public class LanguageServerProcess {
                             line.contains("Started language server"))) {
                         serverStarted = true;
                         logger.info("LSP Server startup detected for user: {}", userId);
-                        Thread.sleep(2000);
+                        Thread.sleep(2000); // Allow server time to initialize fully
 
                         markAsReady();
                     }
-
                 }
 
                 if (errorBuffer.length() > 0) {
@@ -77,139 +75,83 @@ public class LanguageServerProcess {
         errorReaderThread.setDaemon(true);
         errorReaderThread.start();
 
-        // this.readerThread = new Thread(() -> {
-        //     try {
-        //         while (true) {
-        //             // Read headers
-        //             int contentLength = -1;
-        //             String line;
-
-        //             // Read all headers until we hit the empty line
-        //             while ((line = reader.readLine()) != null) {
-        //                 if (line.isEmpty()) {
-        //                     break; // End of headers
-        //                 }
-        //                 if (line.startsWith("Content-Length:")) {
-        //                     try {
-        //                         contentLength = Integer.parseInt(line.substring(15).trim());
-        //                     } catch (NumberFormatException e) {
-        //                         logger.warn("Invalid Content-Length header: {}", line);
-        //                     }
-        //                 }
-        //                 // Ignore other headers
-        //             }
-
-        //             if (line == null) {
-        //                 break; // EOF
-        //             }
-
-        //             // If we couldn't read headers or no content-length, break
-        //             if (contentLength > 0) {
-        //                 char[] buffer = new char[contentLength];
-        //                 int totalRead = 0;
-
-        //                 while (totalRead < contentLength) {
-        //                     int read = reader.read(buffer, totalRead, contentLength - totalRead);
-        //                     if (read == -1) {
-        //                         throw new IOException("Unexpected EOF while reading message body");
-        //                     }
-        //                     totalRead += read;
-        //                 }
-
-        //                 String message = new String(buffer, 0, totalRead);
-        //                 logger.debug("Received LSP message for user {}: {}", userId, message);
-        //                 messageHandler.accept(message);
-        //             }
-
-        //             // Read the JSON content
-        //             char[] buffer = new char[contentLength];
-        //             int totalRead = 0;
-
-        //             while (totalRead < contentLength) {
-        //                 int read = reader.read(buffer, totalRead, contentLength - totalRead);
-        //                 if (read == -1) {
-        //                     logger.error("Unexpected end of stream while reading content for user {}", userId);
-        //                     break;
-        //                 }
-        //                 totalRead += read;
-        //             }
-
-        //             if (totalRead == contentLength) {
-        //                 String jsonContent = new String(buffer, 0, totalRead);
-
-        //                 // Validate JSON is complete
-        //                 if (!jsonContent.trim().endsWith("}")) {
-        //                     logger.error("Incomplete JSON message for user {}: expected {} chars, got {}, content: {}",
-        //                             userId, contentLength, totalRead, jsonContent);
-        //                 } else {
-        //                     logger.info("LSP Response [{}]: {}", userId,
-        //                             jsonContent.length() > 500 ? jsonContent.substring(0, 500) + "..." : jsonContent);
-        //                     messageHandler.accept(jsonContent);
-        //                 }
-        //             } else {
-        //                 logger.error("Failed to read complete message for user {}: expected {} chars, got {}",
-        //                         userId, contentLength, totalRead);
-        //             }
-        //         }
-        //     } catch (IOException e) {
-        //         if (!isShuttingDown) {
-        //             logger.error("Error reading LSP output for user {}: {}", userId, e.getMessage());
-        //         }
-        //     } catch (Exception e) {
-        //         logger.error("Unexpected error in LSP reader thread for user {}: {}", userId, e.getMessage(), e);
-        //     }
-
-        //     logger.info("LSP reader thread exiting for user: {}", userId);
-        // }, "LSP-Output-Reader-" + userId);
+        // **FIXED**: The reader thread now correctly processes the LSP byte stream.
+        // It reads headers and then reads the exact number of bytes specified by
+        // Content-Length.
         this.readerThread = new Thread(() -> {
+            final InputStream inputStream = process.getInputStream();
             try {
-                int contentLength = 0;
-                boolean readingHeaders = true;
+                while (!Thread.currentThread().isInterrupted()) {
+                    ByteArrayOutputStream headerStream = new ByteArrayOutputStream();
+                    int b;
+                    byte[] sequence = new byte[4];
+                    int seqPtr = 0;
 
-                while (true) {
-                    if (readingHeaders) {
-                        String line = reader.readLine();
-                        System.out.println("Read line: " + line);
-                        if (line == null)
+                    while ((b = inputStream.read()) != -1) {
+                        headerStream.write(b);
+                        sequence[seqPtr % 4] = (byte) b;
+                        seqPtr++;
+                        if (seqPtr >= 4 &&
+                                sequence[(seqPtr - 4) % 4] == '\r' &&
+                                sequence[(seqPtr - 3) % 4] == '\n' &&
+                                sequence[(seqPtr - 2) % 4] == '\r' &&
+                                sequence[(seqPtr - 1) % 4] == '\n') {
                             break;
-
-                        if (line.isEmpty()) {
-                            readingHeaders = false;
-                            if (contentLength > 0) {
-                                char[] buffer = new char[contentLength];
-                                int totalRead = 0;
-                                while (totalRead < contentLength) {
-                                    int read = reader.read(buffer, totalRead, contentLength - totalRead);
-                                    if (read == -1)
-                                        break;
-                                    totalRead += read;
-                                }
-
-                                String jsonContent = new String(buffer, 0, totalRead);
-                                logger.info("LSP Response [{}]: {}", userId, jsonContent);
-
-                                messageHandler.accept(jsonContent);
-
-                                contentLength = 0;
-                                readingHeaders = true;
-                            }
-                        } else if (line.startsWith("Content-Length:")) {
-                            contentLength = Integer.parseInt(line.substring(15).trim());
-                        } else if (line.startsWith("Content-Type:")) {
-                            // Ignore content-type header
                         }
                     }
+
+                    if (b == -1) {
+                        break; 
+                    }
+
+                    String headers = new String(headerStream.toByteArray(), StandardCharsets.UTF_8);
+
+                    int contentLength = -1;
+                    for (String line : headers.split("\r\n")) {
+                        if (line.startsWith("Content-Length: ")) {
+                            try {
+                                contentLength = Integer.parseInt(line.substring("Content-Length: ".length()).trim());
+                            } catch (NumberFormatException e) {
+                                logger.error("Failed to parse Content-Length for user {}: {}", userId, line);
+                                contentLength = -1;
+                            }
+                            break;
+                        }
+                    }
+
+                    if (contentLength == -1) {
+                        logger.warn("LSP message received without a valid Content-Length header for user {}", userId);
+                        continue;
+                    }
+
+                    byte[] contentBytes = new byte[contentLength];
+                    int totalBytesRead = 0;
+                    while (totalBytesRead < contentLength) {
+                        int bytesRead = inputStream.read(contentBytes, totalBytesRead, contentLength - totalBytesRead);
+                        if (bytesRead == -1) {
+                            throw new IOException("Stream ended prematurely while reading content for user " + userId);
+                        }
+                        totalBytesRead += bytesRead;
+                    }
+
+                    String content = new String(contentBytes, StandardCharsets.UTF_8);
+
+                    logger.debug("LSP -> Monaco [{}]: {}", userId, content);
+                    messageHandler.accept(content);
                 }
             } catch (IOException e) {
                 if (!isShuttingDown) {
-                    logger.error("Error reading LSP output for user {}: {}", userId, e.getMessage());
+                    logger.error("Error reading from LSP process for user {}: {}", userId, e.getMessage());
+                }
+            } catch (Exception e) {
+                if (!isShuttingDown) {
+                    logger.error("Unexpected error in LSP reader thread for user {}: {}", userId, e.getMessage(), e);
                 }
             }
         }, "LSP-Output-Reader-" + userId);
 
         readerThread.setDaemon(true);
         readerThread.start();
-
     }
 
     private void startProcessMonitor() {
@@ -219,10 +161,10 @@ public class LanguageServerProcess {
                 isReady = false;
 
                 String exitMessage = switch (exitCode) {
-                    case 13 ->
-                        "PERMISSION DENIED or INITIALIZATION FAILURE - Check workspace permissions and initialization";
                     case 1 -> "GENERAL ERROR";
                     case 2 -> "MISUSE OF SHELL COMMAND";
+                    case 13 ->
+                        "PERMISSION DENIED or INITIALIZATION FAILURE - Check workspace permissions and initialization";
                     case 126 -> "COMMAND CANNOT EXECUTE";
                     case 127 -> "COMMAND NOT FOUND";
                     default -> "UNKNOWN ERROR";
@@ -276,12 +218,11 @@ public class LanguageServerProcess {
     }
 
     public void sendMessage(String jsonMessage) {
-        if (!isReady) {
+        if (!isReady()) {
             logger.info("LSP not ready yet for user {}, queueing message", userId);
             pendingMessages.add(jsonMessage);
             return;
         }
-
         sendMessageInternal(jsonMessage);
     }
 
@@ -313,7 +254,6 @@ public class LanguageServerProcess {
                 writer.write(jsonMessage);
                 writer.flush();
             }
-            // logger.info(jsonMessage);
 
             logger.info("Sent message to LSP [{}], length: {}", userId, contentLength);
         } catch (IOException e) {
@@ -345,19 +285,14 @@ public class LanguageServerProcess {
             try {
                 writer.close();
             } catch (Exception e) {
-                logger.debug("Error closing writer: {}", e.getMessage());
+                logger.debug("Error closing writer for user {}: {}", userId, e.getMessage());
             }
 
-            try {
-                reader.close();
-            } catch (Exception e) {
-                logger.debug("Error closing reader: {}", e.getMessage());
-            }
 
             try {
                 errorReader.close();
             } catch (Exception e) {
-                logger.debug("Error closing errorReader: {}", e.getMessage());
+                logger.debug("Error closing errorReader for user {}: {}", userId, e.getMessage());
             }
 
             process.destroyForcibly();

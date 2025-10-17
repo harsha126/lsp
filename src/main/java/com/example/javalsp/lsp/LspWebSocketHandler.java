@@ -57,11 +57,11 @@ public class LspWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String userId = sessionToUser.remove(session.getId());
-        processManager.scheduleCleanup(userId);
+        processManager.cleanupUserSession(userId);
     }
 
     private String extractUserId(WebSocketSession session) {
-        return "user-" + session.getAttributes().get("userId");
+        return "" + session.getAttributes().get("userId");
     }
 
 }
