@@ -26,7 +26,7 @@ public class LanguageServerProcess {
     private final List<String> pendingMessages = new CopyOnWriteArrayList<>();
     private static final Logger logger = LoggerFactory.getLogger(LanguageServerProcess.class);
 
-    public LanguageServerProcess(Process process, Consumer<String> messageHandler, String userId) {
+    public LanguageServerProcess(Process process,String lang,Consumer<String> messageHandler, String userId) {
         this.process = process;
         this.userId = userId;
         // Correctly specify UTF-8 encoding for all readers and writers
@@ -40,7 +40,10 @@ public class LanguageServerProcess {
                 String line;
                 boolean serverStarted = false;
                 StringBuilder errorBuffer = new StringBuilder();
-
+                if(lang == "php"){
+                    Thread.sleep(2000);
+                    markAsReady();
+                } 
                 while ((line = errorReader.readLine()) != null) {
                     logger.error("LSP Error [{}]: {}", userId, line);
                     errorBuffer.append(line).append("\n");

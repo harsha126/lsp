@@ -1,6 +1,5 @@
 package com.example.javalsp.lsp.config;
 
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -23,7 +22,7 @@ public class SecurityConfig {
                 // 3. Define authorization rules
                 .authorizeHttpRequests(auth -> auth
                         // Permit access to your WebSocket endpoint
-                        .requestMatchers("/lsp").permitAll()
+                        .requestMatchers("/lsp", "/php").permitAll()
                         // Add other public endpoints if needed
                         .anyRequest().authenticated() // All other requests require authentication
                 );

@@ -28,13 +28,14 @@ public class LspWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         String userId = extractUserId(session);
+        String language = extractLanguage(session);
         System.out.println("Connection established for user: " + userId);
-        
+
         sessionToUser.put(session.getId(), userId);
         System.out.println("Session to User Map: " + sessionToUser.toString());
 
         // Start or get existing LSP process for user
-        processManager.getOrCreateProcess(userId, message -> {
+        processManager.getOrCreateProcess(userId, language, message -> {
             try {
                 session.sendMessage(new TextMessage(message));
             } catch (IOException e) {
@@ -62,6 +63,10 @@ public class LspWebSocketHandler extends TextWebSocketHandler {
 
     private String extractUserId(WebSocketSession session) {
         return "" + session.getAttributes().get("userId");
+    }
+
+    private String extractLanguage(WebSocketSession session) {
+        return session.getAttributes().get("language").toString();
     }
 
 }

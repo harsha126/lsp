@@ -14,8 +14,9 @@ import com.example.javalsp.lsp.Process.LanguageServerProcessManager;
 public class WebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(
-                lspWebSocketHandler(), "/lsp").addInterceptors(new QueryHandShakeInterceptor())
+        registry.addHandler(lspWebSocketHandler(), "/lsp").addInterceptors(new QueryHandShakeInterceptor())
+                .setAllowedOrigins("*");
+        registry.addHandler(lspWebSocketHandler(), "/php").addInterceptors(new QueryHandShakeInterceptor())
                 .setAllowedOrigins("*");
     }
 

@@ -19,52 +19,59 @@ public class LanguageServerProcessManager {
     private final Map<String, LanguageServerProcess> processes = new ConcurrentHashMap<>();
     private final String jdtLsPath = "/Users/harsha/Downloads/jdt-language-server-1.51.0-202509051440";
 
-    public LanguageServerProcess getOrCreateProcess(String userId, Consumer<String> messageHandler) {
+    public LanguageServerProcess getOrCreateProcess(String userId, String lang, Consumer<String> messageHandler) {
         return processes.computeIfAbsent(userId, id -> {
             try {
-                return startLanguageServerProcess(id, messageHandler);
+                return startLanguageServerProcess(id, lang, messageHandler);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to start LSP for user: " + id, e);
             }
         });
     }
 
-    private LanguageServerProcess startLanguageServerProcess(String userId, Consumer<String> messageHandler)
+    private LanguageServerProcess startLanguageServerProcess(String userId, String lang,
+            Consumer<String> messageHandler)
             throws IOException {
         System.out.println("Starting LSP for user: " + userId);
         String userWorkspacePath = getUserWorkspacePath(userId);
         ensureWorkspaceDirectory(userWorkspacePath);
 
-        Path projectDirectory = Paths.get(userWorkspacePath, "project");
-        if (!Files.exists(projectDirectory)) {
-            Files.createDirectories(projectDirectory);
-            System.out.println("Created project subdirectory: " + projectDirectory);
+        Process process = null;
+        if (lang == "php") {
+            ProcessBuilder processBuilder = new ProcessBuilder("intelephense", "--stdio");
+            process = processBuilder.start();
+        } else {
+
+            Path projectDirectory = Paths.get(userWorkspacePath, "project");
+            if (!Files.exists(projectDirectory)) {
+                Files.createDirectories(projectDirectory);
+                System.out.println("Created project subdirectory: " + projectDirectory);
+            }
+
+            ProcessBuilder processBuilder = new ProcessBuilder(
+                    "java",
+                    "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                    "-Dosgi.bundles.defaultStartLevel=4",
+                    "-Declipse.product=org.eclipse.jdt.ls.core.product",
+                    "-Dlog.level=ALL",
+                    "-noverify",
+                    "-Xmx1G",
+                    "-jar", jdtLsPath + "/plugins/org.eclipse.equinox.launcher_1.7.0.v20250519-0528.jar",
+                    "-configuration", jdtLsPath + "/config_mac",
+                    "-data", userWorkspacePath);
+
+            process = processBuilder.start();
         }
-
-        ProcessBuilder processBuilder = new ProcessBuilder(
-                "java",
-                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
-                "-Dosgi.bundles.defaultStartLevel=4",
-                "-Declipse.product=org.eclipse.jdt.ls.core.product",
-                "-Dlog.level=ALL",
-                "-noverify",
-                "-Xmx1G",
-                "-jar", jdtLsPath + "/plugins/org.eclipse.equinox.launcher_1.7.0.v20250519-0528.jar",
-                "-configuration", jdtLsPath + "/config_mac",
-                "-data", userWorkspacePath);
-
-        Process process = processBuilder.start();
         System.out.println("LSP process started for user " + userId + " with PID: " + process.pid());
 
         return new LanguageServerProcess(
                 process,
+                lang,
                 messageHandler,
                 userId);
     }
 
     public void cleanupUserSession(String userId) {
-        System.out.println(
-                "fddfdsafdsfdfdfdsfdfdafdsfdrewfewacewacdsfadfewafcesafefacdsafdsafdsfdsafdsfdsfdsfdsafdfdfdfdsafdsafdsfdsafdsafdsafdsafdsafdsafdsafdsafdsafdsafdsfdsafdsafdsafdsafdsafdsafdsafdsafd");
         if (userId == null || userId.isBlank()) {
             System.err.println("Cannot cleanup session for a null or empty userId.");
             return;
