@@ -11,13 +11,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class LanguageServerProcessManager {
 
     private final Map<String, LanguageServerProcess> processes = new ConcurrentHashMap<>();
-    private final String jdtLsPath = "/Users/harsha/Downloads/jdt-language-server-1.51.0-202509051440";
+    @Value("${lsp.jdt.path}")
+    private String jdtLsPath;
+
+    @Value("${lsp.jdt.launcher.path}")
+    private String jdtLauncherPath;
 
     public LanguageServerProcess getOrCreateProcess(String userId, String lang, Consumer<String> messageHandler) {
         return processes.computeIfAbsent(userId, id -> {
@@ -37,7 +42,7 @@ public class LanguageServerProcessManager {
         ensureWorkspaceDirectory(userWorkspacePath);
 
         Process process = null;
-        if (lang == "php") {
+        if (lang.equals("php")) {
             ProcessBuilder processBuilder = new ProcessBuilder("intelephense", "--stdio");
             process = processBuilder.start();
         } else {
@@ -47,6 +52,7 @@ public class LanguageServerProcessManager {
                 Files.createDirectories(projectDirectory);
                 System.out.println("Created project subdirectory: " + projectDirectory);
             }
+            System.out.println("Using JDT Launcher from: " + jdtLauncherPath);
 
             ProcessBuilder processBuilder = new ProcessBuilder(
                     "java",
@@ -56,8 +62,8 @@ public class LanguageServerProcessManager {
                     "-Dlog.level=ALL",
                     "-noverify",
                     "-Xmx1G",
-                    "-jar", jdtLsPath + "/plugins/org.eclipse.equinox.launcher_1.7.0.v20250519-0528.jar",
-                    "-configuration", jdtLsPath + "/config_mac",
+                    "-jar", jdtLauncherPath,
+                    "-configuration", jdtLsPath + "/config_linux",
                     "-data", userWorkspacePath);
 
             process = processBuilder.start();

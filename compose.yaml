@@ -1,9 +1,34 @@
+version: '3.8'
+
 services:
+  # Service 1: Your Spring Boot Application
+  app:
+    build: . # Build an image from the Dockerfile in the current directory
+    container_name: my_spring_app
+    ports:
+      - "8080:8080" # Map your app's port
+    environment:
+      # Pass database connection details to Spring Boot
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/mydatabase
+      - SPRING_DATASOURCE_USERNAME=myuser
+      - SPRING_DATASOURCE_PASSWORD=secret
+    depends_on:
+      - postgres # Tells your app to wait for the database to start first
+    restart: on-failure
+
+  # Service 2: Your PostgreSQL Database
   postgres:
-    image: 'postgres:latest'
+    image: 'postgres:15'
+    container_name: my_postgres_db
     environment:
       - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
       - 'POSTGRES_USER=myuser'
+      - 'POSTGRES_PASSWORD=secret'
     ports:
-      - '5432'
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres-data:
