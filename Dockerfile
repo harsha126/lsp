@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y npm curl tar
 RUN npm install -g intelephense
 RUN mkdir -p /opt/jdt-ls
 RUN curl -L "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz" \
-    | tar -xz -C /opt/jdt-ls
+    | tar -xz --no-same-owner -C /opt/jdt-ls
 COPY . .
 RUN mvn clean package -DskipTests
 
